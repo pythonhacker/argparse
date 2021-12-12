@@ -20,6 +20,7 @@ var disableHelp = false
 type Command struct {
 	name        string
 	description string
+	authorinfo  string
 	args        []*arg
 	commands    []*Command
 	parsed      bool
@@ -91,6 +92,8 @@ type Parser struct {
 // Options.Help - A help message to be displayed in Usage output. Can be of any length as the message will be
 // formatted to fit max screen width of 100 characters.
 //
+// Options.Path - A <meta> field describing the argument. For example <path> for a filename argument.
+//
 // Options.Default - A default value for an argument. This value will be assigned to the argument at the end of parsing
 // in case if this argument was not supplied on command line. File default value is a string which it will be open with
 // provided options. In case if provided value type does not match expected, the error will be returned on run-time.
@@ -98,17 +101,19 @@ type Options struct {
 	Required bool
 	Validate func(args []string) error
 	Help     string
+	Path     string
 	Default  interface{}
 }
 
 // NewParser creates new Parser object that will allow to add arguments for parsing
 // It takes program name and description which will be used as part of Usage output
 // Returns pointer to Parser object
-func NewParser(name string, description string) *Parser {
+func NewParser(name, description, authorinfo string) *Parser {
 	p := &Parser{}
 
 	p.name = name
 	p.description = description
+	p.authorinfo = authorinfo
 
 	p.args = make([]*arg, 0)
 	p.commands = make([]*Command, 0)
@@ -133,6 +138,7 @@ func (o *Command) NewCommand(name string, description string) *Command {
 	c.description = description
 	c.parsed = false
 	c.parent = o
+
 	if !disableHelp {
 		c.help("h", "help")
 		c.exitOnHelp = true
@@ -582,9 +588,11 @@ func subCommands2Result(result string, commands []Command, maxWidth int) string 
 func arguments2Result(result string, arguments []*arg, maxWidth int) string {
 	usedHelp := false
 	if len(arguments) > 0 {
-		argContent := "Arguments:\n\n"
+		argContent := "Options:\n\n"
 		// Get biggest padding
 		var argPadding int
+		var argPathPadding int
+
 		// Find biggest padding
 		for _, argument := range arguments {
 			if argument.opts.Help == DisableDescription {
@@ -592,6 +600,9 @@ func arguments2Result(result string, arguments []*arg, maxWidth int) string {
 			}
 			if len(argument.lname)+9 > argPadding {
 				argPadding = len(argument.lname) + 9
+			}
+			if len(argument.opts.Path) > argPathPadding {
+				argPathPadding = len(argument.opts.Path)
 			}
 		}
 		// Now add args with padding
@@ -602,6 +613,7 @@ func arguments2Result(result string, arguments []*arg, maxWidth int) string {
 			if argument.lname == "help" && usedHelp {
 			} else {
 				arg := "  "
+
 				if argument.sname != "" {
 					arg = arg + "-" + argument.sname + "  "
 				} else {
@@ -609,8 +621,16 @@ func arguments2Result(result string, arguments []*arg, maxWidth int) string {
 				}
 				arg = arg + "--" + argument.lname
 				arg = arg + strings.Repeat(" ", argPadding-len(arg))
-				if argument.opts != nil && argument.opts.Help != "" {
-					arg = addToLastLine(arg, argument.getHelpMessage(), maxWidth, argPadding, true)
+
+				if argument.opts != nil {
+					if argument.opts.Path == "" {
+						arg = addToLastLine(arg, strings.Repeat(" ", argPathPadding), maxWidth, argPathPadding, true)
+					} else {
+						arg = addToLastLine(arg, argument.opts.Path+strings.Repeat(" ", argPathPadding-len(argument.opts.Path)), maxWidth, argPathPadding, true)
+					}
+					if argument.opts.Help != "" {
+						arg = addToLastLine(arg, argument.getHelpMessage(), maxWidth, argPadding, true)
+					}
 				}
 				argContent = argContent + arg + "\n"
 			}
@@ -667,6 +687,11 @@ func (o *Command) Usage(msg interface{}) string {
 	result = subCommands2Result(result, commands, maxWidth)
 	// Add list of arguments to the result
 	result = arguments2Result(result, arguments, maxWidth)
+
+	// If this is the last command in the chain, add author info
+	if len(o.GetCommands()) == 0 {
+		result += o.authorinfo
+	}
 
 	return result
 }
